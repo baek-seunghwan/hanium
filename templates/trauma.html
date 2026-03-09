@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}외상센터 정보{% endblock %}
+
+{% block content %}
+  <div class="summary-row">
+    <div class="summary-box">
+      <span class="label">외상센터</span>
+      <span class="value text-primary">{{ items|length }}</span>
+    </div>
+    <div class="summary-box">
+      <span class="label">서버 시각</span>
+      <span class="value" style="font-size:18px;color:var(--gray-700)">{{ server_time }}</span>
+    </div>
+  </div>
+
+  <!-- Filter -->
+  <div class="card">
+    <div class="card-header">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      검색 조건
+    </div>
+    <form method="get" id="traumaForm">
+      <div class="filter-grid">
+        <div class="form-group">
+          <label>시도</label>
+          <input name="sido" value="{{ sido }}" placeholder="예: 서울특별시">
+        </div>
+        <div class="form-group">
+          <label>시군구</label>
+          <input name="sigungu" value="{{ sigungu }}" placeholder="예: 강남구">
+        </div>
+      </div>
+      <input type="hidden" id="lat" name="lat" value="{{ request.args.get('lat','') }}">
+      <input type="hidden" id="lon" name="lon" value="{{ request.args.get('lon','') }}">
+      <div class="btn-row">
+        <button type="button" id="locateBtn" class="btn btn-locate">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+          내 위치 사용
+        </button>
+        {% if request.args.get('lat') %}
+        <span class="loc-indicator">위치 적용됨</span>
+        {% endif %}
+        <div class="ml-auto">
+          <button type="submit" class="btn btn-primary">조회</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {% if error %}
+  <div class="error-banner">{{ error }}</div>
+  {% endif %}
+
+  <!-- Search -->
+  <div class="search-box">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="tableSearch" placeholder="외상센터 검색..." oninput="filterTable()">
+  </div>
+
+  <!-- Table -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:200px">기관명</th>
+            <th>전화번호</th>
+            <th class="text-center">거리</th>
+            <th>주소</th>
+            <th class="text-center">응급실</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr class="data-row">
+            <td>
+              <div class="hosp-name">{{ it.get('dutyname','') or it.get('hpid','알 수 없음') }}</div>
+            </td>
+            <td>
+              {% set tel = it.get('dutytel3','') or it.get('dutytel1','') %}
+              {% if tel %}
+              <a href="tel:{{ tel }}" style="color:var(--primary);text-decoration:none;font-weight:500">{{ tel }}</a>
+              {% else %}-{% endif %}
+            </td>
+            <td class="text-center">
+              {% if it.get('distance_km') is not none %}
+                <span class="badge badge-info">{{ it.get('distance_km') }} km</span>
+              {% else %}-{% endif %}
+            </td>
+            <td><span class="text-muted" style="font-size:13px">{{ it.get('dutyaddr','') or '-' }}</span></td>
+            <td class="text-center">
+              {% if it.get('dutyeryn')=='Y' %}
+                <span class="badge badge-success">운영</span>
+              {% else %}
+                <span class="badge badge-gray">-</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if not items %}
+  <div class="empty-state">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0112 2a8 8 0 018 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
+    <h3>조회된 외상센터가 없습니다</h3>
+    <p>시도/시군구를 입력하고 조회하세요.</p>
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_script %}
+<script>
+function filterTable(){
+  const q = document.getElementById('tableSearch').value.toLowerCase();
+  document.querySelectorAll('tr.data-row').forEach(r => {
+    const name = r.querySelector('.hosp-name');
+    r.style.display = (name && name.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+document.getElementById('locateBtn').addEventListener('click', function(){
+  const btn = this;
+  if(!navigator.geolocation){ alert('위치 정보를 지원하지 않습니다.'); return; }
+  btn.disabled = true; btn.textContent = '위치 확인 중...';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    document.getElementById('lat').value = pos.coords.latitude;
+    document.getElementById('lon').value = pos.coords.longitude;
+    btn.textContent = '위치 적용 완료';
+    setTimeout(()=> document.getElementById('traumaForm').submit(), 300);
+  }, function(){ btn.disabled=false; btn.textContent='내 위치 사용'; },
+  {enableHighAccuracy:true, timeout:10000});
+});
+</script>
+{% endblock %}

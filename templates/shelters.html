@@ -1,0 +1,379 @@
+{% extends "base.html" %}
+{% block title %}무더위쉼터 — 생활위험 코파일럿{% endblock %}
+
+{% block extra_style %}
+<style>
+  .shelter-page { display: grid; grid-template-columns: 1fr 400px; height: calc(100vh - 104px); }
+
+  /* ─── Left: Map ─── */
+  .shelter-map { position: relative; }
+  #shelterMap { width: 100%; height: 100%; }
+  .map-search-overlay {
+    position: absolute; top: 16px; left: 16px; z-index: 500;
+    background: var(--glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px 14px;
+    display: flex; gap: 8px; align-items: center;
+    max-width: 360px; width: 100%;
+  }
+  .map-search-overlay input {
+    flex: 1;
+    background: transparent;
+    border: none; outline: none;
+    color: var(--text);
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .map-search-overlay input::placeholder { color: var(--text-muted); }
+
+  .map-count-overlay {
+    position: absolute; bottom: 16px; left: 16px; z-index: 500;
+    background: var(--glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    font-size: 12px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .map-count-overlay strong { color: var(--primary); font-weight: 700; }
+
+  /* ─── Right: List Panel ─── */
+  .shelter-panel {
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .sp-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sp-header h2 { font-size: 17px; font-weight: 750; letter-spacing: -.3px; }
+  .sp-header p { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  .sp-controls {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+
+  .sp-stats {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sp-stat {
+    padding: 10px 12px;
+    background: var(--surface);
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+  }
+  .sp-stat-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .6px; }
+  .sp-stat-val { font-size: 18px; font-weight: 800; margin-top: 2px; letter-spacing: -.3px; }
+
+  .sp-list {
+    flex: 1; overflow-y: auto; padding: 12px 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-hover) transparent;
+  }
+  .sp-list::-webkit-scrollbar { width: 4px; }
+  .sp-list::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
+
+  /* Shelter tag pills */
+  .s-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+  .s-tag {
+    font-size: 10px; font-weight: 650; padding: 2px 8px;
+    border-radius: 12px;
+  }
+  .s-tag-ac { background: var(--primary-soft); color: var(--primary); }
+  .s-tag-fan { background: var(--warn-soft); color: var(--warn); }
+  .s-tag-night { background: rgba(139,92,246,.12); color: #a78bfa; }
+  .s-tag-weekend { background: var(--info-soft); color: var(--info); }
+  .s-tag-sleep { background: var(--success-soft); color: var(--success); }
+
+  /* Pagination in panel */
+  .sp-pagination {
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+    display: flex; justify-content: center; gap: 4px;
+  }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 1024px) {
+    .shelter-page { grid-template-columns: 1fr; height: auto; }
+    .shelter-map { height: 40vh; min-height: 280px; }
+    .shelter-panel { height: auto; }
+    .sp-list { max-height: 500px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="shelter-page">
+  <!-- ═══ Left: Map ═══ -->
+  <div class="shelter-map">
+    <div id="shelterMap"></div>
+
+    <div class="map-search-overlay">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="shelterSearch" placeholder="쉼터 이름으로 검색..." oninput="filterShelters()">
+    </div>
+
+    <div class="map-count-overlay">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      현재 <strong>{{ items|length }}</strong>개 표시{% if lat and lon %} · 내 위치 기반{% endif %}
+    </div>
+  </div>
+
+  <!-- ═══ Right: List Panel ═══ -->
+  <div class="shelter-panel">
+    <div class="sp-header">
+      <h2>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="display:inline;vertical-align:-3px;margin-right:6px"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        무더위쉼터
+      </h2>
+      <p>전국 무더위쉼터 위치 및 운영정보 조회</p>
+    </div>
+
+    <div class="sp-controls">
+      <form method="get" id="shelterForm" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;width:100%">
+        <select name="rows" class="form-control" style="min-width:80px">
+          {% for v in [20, 50, 100, 200] %}
+          <option value="{{ v }}" {{ 'selected' if rows == v }}>{{ v }}건</option>
+          {% endfor %}
+        </select>
+        <input type="hidden" id="lat" name="lat" value="{{ lat }}">
+        <input type="hidden" id="lon" name="lon" value="{{ lon }}">
+        <button type="button" id="locateBtn" class="btn btn-outline btn-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+          내 위치
+        </button>
+        {% if lat and lon %}
+          <span class="badge badge-info" style="padding:4px 10px">위치 적용됨</span>
+        {% endif %}
+        <button type="submit" class="btn btn-primary btn-sm">조회</button>
+        <a href="/shelters" class="btn btn-ghost btn-sm" style="margin-left:auto">초기화</a>
+      </form>
+    </div>
+
+    <div class="sp-stats">
+      <div class="sp-stat">
+        <div class="sp-stat-label">전국 등록</div>
+        <div class="sp-stat-val" style="color:var(--primary)">{{ "{:,}".format(total) }}</div>
+      </div>
+      <div class="sp-stat">
+        <div class="sp-stat-label">{% if lat and lon %}주변 검색{% else %}현재 표시{% endif %}</div>
+        <div class="sp-stat-val" style="color:var(--success)">{{ items|length }}</div>
+      </div>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-danger" style="margin:12px 20px">{{ error }}</div>
+    {% endif %}
+
+    <div class="sp-list" id="shelterList">
+      {% if items %}
+        {% for it in items %}
+          <div class="shelter-card anim data-row" style="animation-delay:{{ loop.index0 * 0.02 }}s"
+               data-name="{{ (it.get('RSTR_NM') or '')|lower }}">
+            <div>
+              <div class="shelter-name">{{ it.get('RSTR_NM') or '이름 없음' }}</div>
+              <div class="shelter-addr">
+                {{ it.get('RN_DTL_ADRES') or it.get('DTL_ADRES') or '주소 정보 없음' }}
+              </div>
+              <div class="s-tags">
+                {% if it.get('COLR_HOLD_ARCNDTN') and it.get('COLR_HOLD_ARCNDTN') != '0' %}
+                  <span class="s-tag s-tag-ac">❄ 에어컨 {{ it.get('COLR_HOLD_ARCNDTN') }}</span>
+                {% endif %}
+                {% if it.get('COLR_HOLD_ELEFN') and it.get('COLR_HOLD_ELEFN') != '0' %}
+                  <span class="s-tag s-tag-fan">선풍기 {{ it.get('COLR_HOLD_ELEFN') }}</span>
+                {% endif %}
+                {% if it.get('CHCK_MATTER_NIGHT_OPN_AT') == 'Y' %}
+                  <span class="s-tag s-tag-night">야간</span>
+                {% endif %}
+                {% if it.get('CHCK_MATTER_WKEND_HDAY_OPN_AT') == 'Y' %}
+                  <span class="s-tag s-tag-weekend">주말</span>
+                {% endif %}
+                {% if it.get('CHCK_MATTER_STAYNG_PSBL_AT') == 'Y' %}
+                  <span class="s-tag s-tag-sleep">숙박</span>
+                {% endif %}
+              </div>
+              <div class="shelter-meta">
+                {% if it.get('USE_PSBL_NMPR') %}
+                  <span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                    {{ it.get('USE_PSBL_NMPR') }}명
+                  </span>
+                {% endif %}
+                {% if it.get('FCLTY_TY') %}
+                  <span>{{ it.get('FCLTY_TY') }}</span>
+                {% endif %}
+                {% set begin_time = it.get('WKDAY_OPER_BEGIN_TIME') or '' %}
+                {% set end_time = it.get('WKDAY_OPER_END_TIME') or '' %}
+                {% if begin_time and end_time %}
+                  <span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    {{ begin_time[:2] }}:{{ begin_time[2:4] }}~{{ end_time[:2] }}:{{ end_time[2:4] }}
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+            <div class="shelter-distance">
+              {% if it.get('_distance') is not none %}
+                <span class="badge badge-info" style="font-size:13px;padding:4px 12px">{{ it.get('_distance') }}km</span>
+              {% endif %}
+              {% set s_lat = it.get('LA') or it.get('YCORD') or '' %}
+              {% set s_lon = it.get('LO') or it.get('XCORD') or '' %}
+              {% if s_lat and s_lon %}
+                <div style="margin-top:6px">
+                  <a href="https://map.kakao.com/link/to/{{ it.get('RSTR_NM') or '쉼터' }},{{ s_lat }},{{ s_lon }}"
+                     target="_blank" class="btn btn-ghost btn-sm" style="font-size:11px;padding:4px 8px">
+                    길찾기 →
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:40px 20px">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          <h3>쉼터 정보가 없습니다</h3>
+          <p>위치를 설정하거나 조건을 변경해 보세요.</p>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if total_pages > 1 and not (lat and lon) %}
+      <div class="sp-pagination">
+        {% if page > 1 %}
+          <a href="?page={{ page - 1 }}&rows={{ rows }}" class="page-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </a>
+        {% endif %}
+        {% set sp = [1, page - 2]|max %}
+        {% set ep = [total_pages, page + 2]|min %}
+        {% for p in range(sp, ep + 1) %}
+          <a href="?page={{ p }}&rows={{ rows }}" class="page-btn {{ 'active' if p == page }}">{{ p }}</a>
+        {% endfor %}
+        {% if page < total_pages %}
+          <a href="?page={{ page + 1 }}&rows={{ rows }}" class="page-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </a>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+// 내 위치
+document.getElementById('locateBtn')?.addEventListener('click', function() {
+  if (!navigator.geolocation) return alert('위치 서비스를 사용할 수 없습니다.');
+  this.textContent = '확인 중…';
+  this.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      document.getElementById('lat').value = pos.coords.latitude.toFixed(6);
+      document.getElementById('lon').value = pos.coords.longitude.toFixed(6);
+      document.getElementById('shelterForm').submit();
+    },
+    err => {
+      alert('위치를 가져올 수 없습니다: ' + err.message);
+      this.textContent = '내 위치';
+      this.disabled = false;
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
+
+// 이름 필터
+function filterShelters() {
+  const q = document.getElementById('shelterSearch').value.toLowerCase();
+  document.querySelectorAll('.data-row').forEach(el => {
+    el.style.display = el.dataset.name.includes(q) ? '' : 'none';
+  });
+}
+
+// 지도
+{% if items %}
+(function() {
+  const shelters = [
+    {% for it in items %}
+    {% set s_lat = it.get('LA') or it.get('YCORD') or '' %}
+    {% set s_lon = it.get('LO') or it.get('XCORD') or '' %}
+    {% if s_lat and s_lon %}
+    {
+      name: {{ (it.get('RSTR_NM') or '쉼터')|tojson }},
+      addr: {{ (it.get('RN_DTL_ADRES') or it.get('DTL_ADRES') or '')|tojson }},
+      lat: {{ s_lat }},
+      lon: {{ s_lon }},
+      cap: {{ (it.get('USE_PSBL_NMPR') or '0')|tojson }},
+    },
+    {% endif %}
+    {% endfor %}
+  ];
+
+  if (!shelters.length) return;
+
+  const avgLat = shelters.reduce((s, x) => s + x.lat, 0) / shelters.length;
+  const avgLon = shelters.reduce((s, x) => s + x.lon, 0) / shelters.length;
+
+  const map = L.map('shelterMap', { zoomControl: false, attributionControl: false })
+    .setView([avgLat, avgLon], 13);
+
+  L.control.zoom({ position: 'topright' }).addTo(map);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; CARTO &copy; OSM',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  const icon = L.divIcon({
+    html: '<div style="background:#3b82f6;width:10px;height:10px;border-radius:50%;border:2px solid rgba(255,255,255,.8);box-shadow:0 0 8px rgba(59,130,246,.5)"></div>',
+    iconSize: [14, 14], iconAnchor: [7, 7], className: ''
+  });
+
+  shelters.forEach(s => {
+    L.marker([s.lat, s.lon], { icon })
+      .addTo(map)
+      .bindPopup(
+        '<div style="font-family:Pretendard Variable,sans-serif">' +
+        '<strong style="font-size:13px">' + s.name + '</strong>' +
+        '<br><span style="font-size:11px;color:#888">' + s.addr + '</span>' +
+        (s.cap !== '0' ? '<br><span style="font-size:11px">수용 ' + s.cap + '명</span>' : '') +
+        '</div>'
+      );
+  });
+
+  {% if lat and lon %}
+  const myIcon = L.divIcon({
+    html: '<div style="width:14px;height:14px;background:#ef4444;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(239,68,68,.5)"></div>',
+    iconSize: [20, 20], iconAnchor: [10, 10], className: ''
+  });
+  L.marker([{{ lat }}, {{ lon }}], { icon: myIcon })
+    .addTo(map).bindPopup('<strong>내 위치</strong>').openPopup();
+  map.setView([{{ lat }}, {{ lon }}], 14);
+  {% endif %}
+})();
+{% else %}
+(function() {
+  const map = L.map('shelterMap', { zoomControl: false, attributionControl: false })
+    .setView([36.5, 127.5], 7);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    subdomains: 'abcd', maxZoom: 19
+  }).addTo(map);
+})();
+{% endif %}
+</script>
+{% endblock %}

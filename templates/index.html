@@ -1,435 +1,356 @@
 {% extends "base.html" %}
-{% block title %}실시간 병상 조회{% endblock %}
+{% block title %}종합현황 — 생활위험 코파일럿{% endblock %}
 
-{% block topbar_extra %}
-  <span style="opacity:.5">|</span>
-  <span>전체 <strong>{{ items|length }}</strong>개</span>
-  <span>입원 <strong style="color:#34d399">{{ items|selectattr('admission_available')|list|length }}</strong></span>
-  <span>응급 <strong style="color:#fbbf24">{{ items|selectattr('er_available')|list|length }}</strong></span>
+{% block ticker_items %}
+  {% if messages %}
+    {% for msg in messages %}
+      <span class="ticker-item"><strong>{{ msg.get('CRT_DT','')[:10] }}</strong>{{ msg.get('MSG_CN','')[:80] }}</span>
+    {% endfor %}
+    {% for msg in messages %}
+      <span class="ticker-item"><strong>{{ msg.get('CRT_DT','')[:10] }}</strong>{{ msg.get('MSG_CN','')[:80] }}</span>
+    {% endfor %}
+  {% else %}
+    <span class="ticker-item">현재 수신된 재난문자가 없습니다.</span>
+  {% endif %}
+{% endblock %}
+
+{% block extra_style %}
+<style>
+  /* ─── Full-screen map layout ─── */
+  .page-body { margin-top: 104px; }
+  .dash { display: grid; grid-template-columns: 1fr 420px; height: calc(100vh - 104px); }
+
+  /* ─── Left: Map Area ─── */
+  .dash-map { position: relative; background: var(--bg-secondary); }
+  #mainMap { width: 100%; height: 100%; }
+
+  /* Map overlay panels */
+  .map-overlay {
+    position: absolute; z-index: 500;
+    background: var(--glass);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .map-status {
+    top: 16px; left: 16px; right: auto;
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .map-status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px var(--success);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .5; transform: scale(1.3); }
+  }
+  .map-status-text { font-size: 12px; color: var(--text-secondary); }
+  .map-status-text strong { color: var(--text); font-weight: 650; }
+  .map-locate {
+    bottom: 24px; right: 16px;
+    padding: 10px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all var(--transition);
+  }
+  .map-locate:hover { background: var(--surface-hover); }
+  .map-locate svg { color: var(--primary); }
+
+  /* ─── Category chips on map ─── */
+  .map-categories {
+    bottom: 24px; left: 16px;
+    padding: 8px;
+    display: flex; gap: 6px;
+  }
+  .cat-chip {
+    padding: 6px 14px; border-radius: 20px;
+    font-size: 12px; font-weight: 600;
+    background: rgba(255,255,255,.05);
+    color: var(--text-secondary);
+    border: 1px solid var(--glass-border);
+    cursor: pointer; transition: all var(--transition);
+    text-decoration: none;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .cat-chip:hover { background: rgba(255,255,255,.1); color: var(--text); }
+  .cat-chip.active { background: var(--primary-soft); color: var(--primary); border-color: rgba(59,130,246,.3); }
+  .cat-chip svg { width: 14px; height: 14px; }
+
+  /* ─── Right: Sidebar Panel ─── */
+  .dash-panel {
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-header h2 {
+    font-size: 17px; font-weight: 750;
+    letter-spacing: -.3px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-header p { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Stats inside panel */
+  .panel-stats {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 8px; padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ps {
+    padding: 14px;
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+  }
+  .ps-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; }
+  .ps-val { font-size: 22px; font-weight: 800; letter-spacing: -.3px; margin-top: 4px; }
+  .ps-sub { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Messages feed */
+  .panel-feed {
+    flex: 1; overflow-y: auto; padding: 12px 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--surface-hover) transparent;
+  }
+  .panel-feed::-webkit-scrollbar { width: 4px; }
+  .panel-feed::-webkit-scrollbar-thumb { background: var(--surface-hover); border-radius: 4px; }
+
+  .feed-title {
+    font-size: 12px; font-weight: 700; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: .8px;
+    margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .feed-title a {
+    font-size: 12px; font-weight: 500; color: var(--primary);
+    text-decoration: none; text-transform: none; letter-spacing: 0;
+  }
+  .feed-title a:hover { text-decoration: underline; }
+
+  .feed-item {
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 8px;
+    transition: all var(--transition);
+    cursor: default;
+  }
+  .feed-item:hover { border-color: var(--border-hover); }
+  .feed-item-top {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 6px;
+  }
+  .feed-item-time { font-size: 11px; color: var(--text-muted); margin-left: auto; font-variant-numeric: tabular-nums; }
+  .feed-item-body { font-size: 12px; color: var(--text-secondary); line-height: 1.65; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .feed-item-region { font-size: 11px; color: var(--text-muted); margin-top: 6px; display: flex; align-items: center; gap: 3px; }
+
+  /* ─── Feature Grid (bottom of panel) ─── */
+  .panel-features {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+  }
+  .feat {
+    text-align: center; padding: 12px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    transition: all var(--transition); text-decoration: none; color: inherit;
+  }
+  .feat:hover { border-color: var(--border-hover); background: var(--surface-hover); }
+  .feat-icon {
+    width: 32px; height: 32px; margin: 0 auto 6px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .feat-icon svg { width: 16px; height: 16px; }
+  .feat span { font-size: 11px; font-weight: 600; }
+  .feat-soon { opacity: .4; pointer-events: none; }
+
+  /* ─── Mobile ─── */
+  @media (max-width: 1024px) {
+    .dash { grid-template-columns: 1fr; height: auto; }
+    .dash-map { height: 45vh; min-height: 300px; }
+    .dash-panel { height: auto; }
+    .panel-feed { max-height: 400px; }
+  }
+</style>
 {% endblock %}
 
 {% block content %}
-  <!-- ═══ Summary Boxes ═══ -->
-  {% set admit_count = items|selectattr('admission_available')|list|length %}
-  {% set er_count = items|selectattr('er_available')|list|length %}
-  {% set no_bed = items|length - admit_count %}
-  <div class="summary-row">
-    <div class="summary-box">
-      <span class="label">조회 기관</span>
-      <span class="value text-primary">{{ items|length }}</span>
-    </div>
-    <div class="summary-box">
-      <span class="label">입원 가능</span>
-      <span class="value text-success">{{ admit_count }}</span>
-    </div>
-    <div class="summary-box">
-      <span class="label">응급실 여유</span>
-      <span class="value text-warn">{{ er_count }}</span>
-    </div>
-    <div class="summary-box">
-      <span class="label">병상 부족</span>
-      <span class="value text-danger">{{ no_bed }}</span>
-    </div>
-    <div class="summary-box">
-      <span class="label">서버 기준 시각</span>
-      <span class="value" style="font-size:18px;color:var(--gray-700)">{{ server_time }}</span>
-      <span style="font-size:11px;color:var(--gray-500);margin-top:2px">자동 갱신 <span id="countdown">30</span>초 후</span>
-    </div>
-  </div>
+<div class="dash">
+  <!-- ═══ Left: Map ═══ -->
+  <div class="dash-map">
+    <div id="mainMap"></div>
 
-  <!-- ═══ Filter Card ═══ -->
-  <div class="card">
-    <div class="card-header">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-      검색 조건
-    </div>
-    <form method="get" id="mainForm">
-      <div class="filter-grid">
-        <div class="form-group">
-          <label>시도</label>
-          <input name="sido" value="{{sido}}" placeholder="예: 서울특별시">
-        </div>
-        <div class="form-group">
-          <label>시군구</label>
-          <input name="sigungu" value="{{sigungu}}" placeholder="예: 강남구">
-        </div>
-        <div class="form-group">
-          <label>건수</label>
-          <input name="numOfRows" value="{{num}}" type="number" min="1" max="500">
-        </div>
-        <div class="form-group">
-          <label>진료과</label>
-          <select name="dept" id="dept_select">
-            <option value="">전체</option>
-            {% for opt in ['안과','내과','호흡기내과','신경과','외과','소아청소년과','정형외과','신경외과','흉부외과','마취과','산부인과'] %}
-            <option value="{{opt}}" {% if request.args.get('dept')==opt %}selected{% endif %}>{{opt}}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" style="justify-content:flex-end">
-          <label class="checkbox-label">
-            <input type="checkbox" name="only_admit" value="1" {% if request.args.get('only_admit') %}checked{% endif %}>
-            입원 가능만
-          </label>
-        </div>
-        <div class="form-group" style="justify-content:flex-end">
-          <label class="checkbox-label">
-            <input type="checkbox" name="show_map" value="1" {% if request.args.get('show_map') %}checked{% endif %}>
-            지도 표시
-          </label>
-        </div>
+    <div class="map-overlay map-status">
+      <div class="map-status-dot"></div>
+      <div class="map-status-text">
+        <strong>실시간 모니터링</strong> · 데이터 갱신 {{ server_time }}
       </div>
-      <input type="hidden" id="lat" name="lat" value="{{ request.args.get('lat','') }}">
-      <input type="hidden" id="lon" name="lon" value="{{ request.args.get('lon','') }}">
-
-      <div class="btn-row">
-        <button type="button" id="locateBtn" class="btn btn-locate">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
-          내 위치 사용
-        </button>
-        {% if request.args.get('lat') and request.args.get('lon') %}
-        <span class="loc-indicator">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-          위치 적용됨 ({{ "%.4f"|format(request.args.get('lat',0)|float) }}, {{ "%.4f"|format(request.args.get('lon',0)|float) }})
-        </span>
-        {% endif %}
-
-        <div class="ml-auto" style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" id="askAiBtn" class="btn btn-ai">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4c0 2-2 3-4 4-2-1-4-2-4-4a4 4 0 0 1 4-4z"/><path d="M6 16c0-2 2.7-4 6-4s6 2 6 4v2H6v-2z"/></svg>
-            AI 추천
-          </button>
-          <a href="/export.csv?sido={{sido}}&sigungu={{sigungu}}&numOfRows={{num}}&dept={{ request.args.get('dept','') }}" class="btn btn-success">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            CSV
-          </a>
-          <button type="submit" class="btn btn-primary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            조회
-          </button>
-          <button type="button" onclick="location.reload()" class="btn btn-outline">새로고침</button>
-        </div>
-      </div>
-    </form>
-  </div>
-
-  {% if error %}
-  <div class="error-banner">요청 중 에러가 발생했습니다: {{ error }}</div>
-  {% endif %}
-
-  <!-- ═══ Map ═══ -->
-  {% if request.args.get('show_map') and map_html %}
-  <div class="card">
-    <div class="card-header">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg>
-      병원 위치 지도
     </div>
-    {{ map_html|safe }}
-  </div>
-  {% endif %}
 
-  <!-- ═══ Search ═══ -->
-  <div class="search-box">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-    <input type="text" id="tableSearch" placeholder="기관명으로 검색..." oninput="filterTable()">
+    <div class="map-overlay map-categories">
+      <a href="/shelters" class="cat-chip active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+        무더위쉼터
+      </a>
+      <span class="cat-chip" style="opacity:.5;cursor:default">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        AED
+      </span>
+      <span class="cat-chip" style="opacity:.5;cursor:default">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        대피소
+      </span>
+    </div>
+
+    <div class="map-overlay map-locate" id="locateBtn" title="내 위치로 이동">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+      </svg>
+    </div>
   </div>
 
-  <!-- ═══ Results Table ═══ -->
-  <div class="card" style="padding:0;overflow:hidden">
-    <div class="table-wrap">
-      <table id="results">
-        <thead>
-          <tr>
-            <th style="min-width:220px">기관명</th>
-            <th>전화번호</th>
-            <th class="text-center">거리</th>
-            <th class="text-center">응급실</th>
-            <th class="text-center">입원실</th>
-            <th class="text-center">상태</th>
-            <th>장비</th>
-            <th class="text-center" style="width:60px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for it in items %}
-          <tr class="data-row" id="row{{loop.index0}}">
-            <td>
-              <div class="hosp-name">{{ it.get('dutyname') or it.get('hpid','알 수 없음') }}</div>
-              <div class="hosp-addr">{{ it.get('dutyaddr') or '주소 정보 없음' }}</div>
-              <div class="hosp-update">갱신: {{ it.get('hvidate_fmt') or '-' }}</div>
-            </td>
-            <td>
-              {% if it.get('dutytel3') %}
-              <a href="tel:{{ it.get('dutytel3') }}" style="color:var(--primary);text-decoration:none;font-weight:500">{{ it.get('dutytel3') }}</a>
-              {% else %}-{% endif %}
-            </td>
-            <td class="text-center">
-              {% if it.get('distance_km') is not none %}
-                <span class="badge badge-info">{{ it.get('distance_km') }} km</span>
+  <!-- ═══ Right: Info Panel ═══ -->
+  <div class="dash-panel">
+    <div class="panel-header">
+      <h2>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        종합현황 대시보드
+      </h2>
+      <p>재난안전 데이터를 실시간으로 통합 모니터링합니다</p>
+    </div>
+
+    <div class="panel-stats">
+      <div class="ps">
+        <div class="ps-label">재난문자</div>
+        <div class="ps-val" style="color:var(--danger)">{{ "{:,}".format(msg_total) }}</div>
+        <div class="ps-sub">전체 누적</div>
+      </div>
+      <div class="ps">
+        <div class="ps-label">무더위쉼터</div>
+        <div class="ps-val" style="color:var(--primary)">{{ "{:,}".format(shelter_total) }}</div>
+        <div class="ps-sub">전국 등록</div>
+      </div>
+    </div>
+
+    <div class="panel-feed">
+      <div class="feed-title">
+        최근 긴급재난문자
+        <a href="/disaster">전체 보기 →</a>
+      </div>
+
+      {% if msg_error %}
+        <div class="alert alert-warn" style="font-size:12px;padding:10px 14px">{{ msg_error }}</div>
+      {% elif messages %}
+        {% for msg in messages %}
+          <div class="feed-item anim" style="animation-delay:{{ loop.index0 * 0.04 }}s">
+            <div class="feed-item-top">
+              {% set level = msg.get('EMRG_STEP_NM') or '' %}
+              {% if '긴급' in level or '위급' in level %}
+                <span class="badge badge-danger" style="font-size:10px;padding:2px 7px">{{ level }}</span>
+              {% elif '주의' in level %}
+                <span class="badge badge-warn" style="font-size:10px;padding:2px 7px">{{ level }}</span>
               {% else %}
-                <span class="text-muted">-</span>
+                <span class="badge badge-info" style="font-size:10px;padding:2px 7px">{{ level or '안전안내' }}</span>
               {% endif %}
-            </td>
-            <td class="text-center">
-              {% if it.get('hvec') is not none %}
-                {% if it.get('er_available') %}
-                  <span class="badge badge-success">{{ it.get('hvec') }}석</span>
-                {% else %}
-                  <span class="badge badge-danger">{{ it.get('hvec') or 0 }}석</span>
-                {% endif %}
-              {% else %}
-                <span class="badge badge-gray">정보없음</span>
+              {% set dtype = msg.get('DST_SE_NM') or '' %}
+              {% if dtype %}
+                <span class="badge badge-muted" style="font-size:10px;padding:2px 7px">{{ dtype }}</span>
               {% endif %}
-            </td>
-            <td class="text-center">
-              {% if it.get('hvgc') is not none %}
-                {% if it.get('admission_available') %}
-                  <span class="badge badge-success">{{ it.get('hvgc') }}석</span>
-                {% else %}
-                  <span class="badge badge-danger">{{ it.get('hvgc') or 0 }}석</span>
-                {% endif %}
-              {% else %}
-                <span class="badge badge-gray">정보없음</span>
-              {% endif %}
-            </td>
-            <td class="text-center">
-              {% if it.get('admission_available') and it.get('er_available') %}
-                <span class="badge badge-success">입원+응급 가능</span>
-              {% elif it.get('admission_available') %}
-                <span class="badge badge-success">입원 가능</span>
-              {% elif it.get('er_available') %}
-                <span class="badge badge-warn">응급만 가능</span>
-              {% else %}
-                <span class="badge badge-danger">불가</span>
-              {% endif %}
-            </td>
-            <td>
-              <div class="equip-tags">
-                {% for ef in equip_fields %}
-                  {% if it.get(ef) == 'Y' %}
-                    <span class="equip-tag">{{ field_labels.get(ef, ef) }}</span>
-                  {% endif %}
-                {% endfor %}
+              <span class="feed-item-time">{{ msg.get('CRT_DT','')[:16] }}</span>
+            </div>
+            <div class="feed-item-body">{{ msg.get('MSG_CN','') }}</div>
+            {% set region = msg.get('RCV_AREA_NM') or msg.get('RCPTN_RGN_NM') or '' %}
+            {% if region %}
+              <div class="feed-item-region">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                {{ region }}
               </div>
-            </td>
-            <td class="text-center">
-              <button class="toggle-detail" data-idx="{{loop.index0}}">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-              </button>
-            </td>
-          </tr>
-          <tr class="detail-panel" id="detail{{loop.index0}}">
-            <td colspan="8">
-              <div class="detail-inner">
-                <div class="detail-grid">
-                  <div class="detail-section">
-                    <h4>병상 현황</h4>
-                    <ul class="detail-list">
-                      {% for bf in bed_fields %}
-                        {% set val = it.get(bf) %}
-                        {% if val is not none and val != '' %}
-                        <li>
-                          <span class="dl-label">{{ field_labels.get(bf, bf) }}</span>
-                          <span class="dl-value">
-                            {% if val == 'Y' %}<span class="badge badge-success" style="font-size:11px">가능</span>
-                            {% elif val == 'N' %}<span class="badge badge-danger" style="font-size:11px">불가</span>
-                            {% elif val is number %}{{ val }}석
-                            {% else %}{{ val }}{% endif %}
-                          </span>
-                        </li>
-                        {% endif %}
-                      {% endfor %}
-                    </ul>
-                  </div>
-                  <div class="detail-section">
-                    <h4>진료과별 가용 현황</h4>
-                    <ul class="detail-list">
-                      {% for sf in spec_fields %}
-                        {% set val = it.get(sf) %}
-                        {% if val is not none and val != '' and val != '0' and val != 0 %}
-                        <li>
-                          <span class="dl-label">{{ field_labels.get(sf, sf) }}</span>
-                          <span class="dl-value">{{ val }}명</span>
-                        </li>
-                        {% endif %}
-                      {% endfor %}
-                    </ul>
-                  </div>
-                  <div class="detail-section">
-                    <h4>장비 및 기타 정보</h4>
-                    <ul class="detail-list">
-                      {% for ef in equip_fields %}
-                        <li>
-                          <span class="dl-label">{{ field_labels.get(ef, ef) }}</span>
-                          <span class="dl-value">
-                            {% if it.get(ef) == 'Y' %}<span class="badge badge-success" style="font-size:11px">보유</span>
-                            {% else %}<span class="badge badge-gray" style="font-size:11px">없음</span>{% endif %}
-                          </span>
-                        </li>
-                      {% endfor %}
-                      <li>
-                        <span class="dl-label">기관코드</span>
-                        <span class="dl-value">{{ it.get('hpid','') }}</span>
-                      </li>
-                      <li>
-                        <span class="dl-label">수술실 가용</span>
-                        <span class="dl-value">{{ it.get('hvoc') if it.get('hvoc') is not none and it.get('hvoc') != '' else '-' }}</span>
-                      </li>
-                      <li>
-                        <span class="dl-label">당직의</span>
-                        <span class="dl-value">{{ it.get('hvdnm') or '-' }}</span>
-                      </li>
-                      {% if it.get('changes') %}
-                      <li>
-                        <span class="dl-label">최근 변화</span>
-                        <span class="dl-value" style="color:var(--warn)">
-                          {% for ck, cv in it.get('changes').items() %}
-                            {{ field_labels.get(ck, ck) }}: {{ cv[0] }} &rarr; {{ cv[1] }}
-                          {% endfor %}
-                        </span>
-                      </li>
-                      {% endif %}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  {% if not items %}
-  <div class="empty-state">
-    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-    <h3>조회된 결과가 없습니다</h3>
-    <p>필터 조건을 변경하거나 다시 조회해 주세요.</p>
-  </div>
-  {% endif %}
-
-  <!-- ═══ AI Modal ═══ -->
-  <div class="modal-backdrop" id="aiModal">
-    <div class="modal">
-      <div class="modal-header">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        <h3>AI 응급실 추천</h3>
-        <button class="modal-close" onclick="closeAiModal()">&times;</button>
-      </div>
-      <div class="modal-body" id="aiResult">
-        <div class="ai-loading">
-          <div class="spinner"></div>
-          <div>분석 중입니다...</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:30px">
+          <p style="font-size:12px">수신된 재난문자가 없습니다</p>
         </div>
+      {% endif %}
+    </div>
+
+    <div class="panel-features">
+      <a href="/disaster" class="feat">
+        <div class="feat-icon" style="background:var(--danger-soft)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        </div>
+        <span>재난문자</span>
+      </a>
+      <a href="/shelters" class="feat">
+        <div class="feat-icon" style="background:var(--primary-soft)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <span>쉼터</span>
+      </a>
+      <div class="feat feat-soon">
+        <div class="feat-icon" style="background:var(--warn-soft)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2"><path d="M12 2v10"/><path d="M18.4 6.6L12 12"/><circle cx="12" cy="12" r="10"/></svg>
+        </div>
+        <span>기상특보</span>
       </div>
     </div>
   </div>
+</div>
 {% endblock %}
 
 {% block extra_script %}
 <script>
-  /* ── Auto-refresh countdown ── */
-  let refreshSec = 30;
-  const countdownEl = document.getElementById('countdown');
-  setInterval(()=>{
-    refreshSec--;
-    if(countdownEl) countdownEl.textContent = refreshSec;
-    if(refreshSec <= 0) location.reload();
-  }, 1000);
-
-  /* ── Geolocation ── */
-  document.getElementById('locateBtn').addEventListener('click', function(){
-    const btn = this;
-    if(!navigator.geolocation){
-      alert('이 브라우저는 위치 정보를 지원하지 않습니다.');
-      return;
-    }
-    btn.disabled = true;
-    btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg> 위치 확인 중...';
-    navigator.geolocation.getCurrentPosition(function(pos){
-      document.getElementById('lat').value = pos.coords.latitude;
-      document.getElementById('lon').value = pos.coords.longitude;
-      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 위치 적용 완료';
-      setTimeout(()=> document.getElementById('mainForm').submit(), 300);
-    }, function(err){
-      btn.disabled = false;
-      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg> 내 위치 사용';
-      alert('위치 정보 오류: ' + (err && err.message ? err.message : '알 수 없는 오류'));
-    }, {enableHighAccuracy:true, timeout:10000});
+(function() {
+  // ─── Init map (Korea center) ───
+  const map = L.map('mainMap', {
+    center: [36.5, 127.5],
+    zoom: 7,
+    zoomControl: false,
+    attributionControl: false
   });
 
-  /* ── Table Search ── */
-  function filterTable(){
-    const q = document.getElementById('tableSearch').value.toLowerCase();
-    document.querySelectorAll('tr.data-row').forEach(r => {
-      const name = r.querySelector('.hosp-name');
-      const match = name && name.textContent.toLowerCase().includes(q);
-      r.style.display = match ? '' : 'none';
-      const idx = r.id.replace('row','');
-      const det = document.getElementById('detail'+idx);
-      if(det && !match) det.style.display = 'none';
-    });
-  }
+  L.control.zoom({ position: 'topright' }).addTo(map);
+  L.control.attribution({ position: 'bottomright', prefix: false }).addTo(map);
 
-  /* ── Detail Toggle ── */
-  document.querySelectorAll('.toggle-detail').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const idx = btn.dataset.idx;
-      const panel = document.getElementById('detail'+idx);
-      if(!panel) return;
-      const open = panel.style.display === 'table-row';
-      panel.style.display = open ? 'none' : 'table-row';
-      btn.querySelector('svg').style.transform = open ? '' : 'rotate(180deg)';
-    });
-  });
+  // Dark-themed tiles (CartoDB Dark Matter)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://osm.org/">OSM</a>',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
 
-  /* ── AI Modal ── */
-  function openAiModal(){
-    document.getElementById('aiModal').classList.add('active');
-    document.getElementById('aiResult').innerHTML = '<div class="ai-loading"><div class="spinner"></div><div>응급실 데이터를 분석 중입니다...</div></div>';
-    const form = document.getElementById('mainForm');
-    const fd = new FormData(form);
-    const params = new URLSearchParams(fd).toString();
-    fetch('/ai/query?' + params)
-      .then(r => r.json())
-      .then(data => {
-        if(data.error){
-          document.getElementById('aiResult').innerHTML = '<div class="error-banner">'+data.error+'</div>';
-          return;
-        }
-        let html = '<div style="margin-bottom:16px;font-size:14px;color:var(--gray-500)">총 <strong>'+data.count+'</strong>개 기관 분석 — 상위 <strong>'+data.top.length+'</strong>곳 추천</div>';
-        data.top.forEach((item, i) => {
-          const dist = item.distance_km !== null ? item.distance_km + ' km' : '-';
-          const hvec = item.hvec !== null ? item.hvec + '석' : '-';
-          const hvgc = item.hvgc !== null ? item.hvgc + '석' : '-';
-          html += '<div class="ai-card">'
-            + '<div class="ai-rank">'+(i+1)+'위</div>'
-            + '<div class="ai-card-header">'
-            + '<span class="ai-card-name">'+(item.dutyname || item.hpid || '알 수 없음')+'</span>'
-            + '<span class="ai-card-score">'+item.score+'점</span>'
-            + '</div>'
-            + '<div class="ai-card-meta">'
-            + '<span>응급실: '+hvec+'</span>'
-            + '<span>입원실: '+hvgc+'</span>'
-            + '<span>거리: '+dist+'</span>'
-            + (item.dutytel3 ? '<span>전화: <a href="tel:'+item.dutytel3+'" style="color:var(--primary);font-weight:500">'+item.dutytel3+'</a></span>' : '')
-            + '</div>'
-            + '<div class="ai-card-reason"><strong>추천 이유:</strong> '+item.reason+'</div>'
-            + '</div>';
+  // Locate button
+  document.getElementById('locateBtn').addEventListener('click', function() {
+    if (!navigator.geolocation) return alert('위치 서비스를 사용할 수 없습니다.');
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lon } = pos.coords;
+        map.setView([lat, lon], 14);
+        const myIcon = L.divIcon({
+          html: '<div style="width:14px;height:14px;background:#3b82f6;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(59,130,246,.6)"></div>',
+          iconSize: [20, 20], iconAnchor: [10, 10], className: ''
         });
-        document.getElementById('aiResult').innerHTML = html;
-      })
-      .catch(err => {
-        document.getElementById('aiResult').innerHTML = '<div class="error-banner">AI 분석 실패: '+err+'</div>';
-      });
-  }
-  function closeAiModal(){
-    document.getElementById('aiModal').classList.remove('active');
-  }
-  document.getElementById('askAiBtn').addEventListener('click', openAiModal);
-  document.getElementById('aiModal').addEventListener('click', function(e){
-    if(e.target === this) closeAiModal();
+        L.marker([lat, lon], { icon: myIcon }).addTo(map).bindPopup('<strong>내 위치</strong>').openPopup();
+      },
+      err => alert('위치를 가져올 수 없습니다: ' + err.message),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   });
+})();
 </script>
 {% endblock %}

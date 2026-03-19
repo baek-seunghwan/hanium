@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}긴급재난문자 — 생활위험 코파일럿{% endblock %}
+
+{% block ticker_items %}
+  {% if messages %}
+    {% for msg in messages[:5] %}
+      <span class="ticker-item"><strong>{{ msg.get('CRT_DT','')[:10] }}</strong>{{ msg.get('MSG_CN','')[:80] }}</span>
+    {% endfor %}
+    {% for msg in messages[:5] %}
+      <span class="ticker-item"><strong>{{ msg.get('CRT_DT','')[:10] }}</strong>{{ msg.get('MSG_CN','')[:80] }}</span>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+
+{% block disaster_badge %}<span class="nav-badge">{{ "{:,}".format(total) }}</span>{% endblock %}
+
+{% block extra_style %}
+<style>
+  .page-title {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 6px;
+  }
+  .page-title h2 { font-size: 20px; font-weight: 800; letter-spacing: -.3px; }
+  .page-title .badge { font-size: 12px; padding: 4px 12px; }
+  .page-desc { font-size: 13px; color: var(--text-muted); margin-bottom: 20px; }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 20px;
+  }
+  .controls select { min-width: 100px; }
+
+  /* Enhanced message card for this page */
+  .msg-card {
+    border-left: 3px solid var(--border);
+    padding-left: 18px;
+    position: relative;
+  }
+  .msg-card.emergency { border-left-color: var(--danger); }
+  .msg-card.caution { border-left-color: var(--warn); }
+  .msg-card.info { border-left-color: var(--info); }
+  .msg-card::before {
+    content: '';
+    position: absolute; left: -5px; top: 20px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--border);
+  }
+  .msg-card.emergency::before { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
+  .msg-card.caution::before { background: var(--warn); }
+  .msg-card.info::before { background: var(--info); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+  <!-- Page Header -->
+  <div class="anim">
+    <div class="page-title">
+      <h2>긴급재난문자</h2>
+      <span class="badge badge-danger">LIVE</span>
+    </div>
+    <p class="page-desc">행정안전부 발송 긴급재난문자 · 최신순 정렬 · 전체 {{ "{:,}".format(total) }}건</p>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row anim anim-d1">
+    <div class="stat-card danger">
+      <div class="stat-label">전체 재난문자</div>
+      <div class="stat-value" style="color:var(--danger)">{{ "{:,}".format(total) }}</div>
+      <div class="stat-sub">누적 발송 건수</div>
+    </div>
+    <div class="stat-card primary">
+      <div class="stat-label">현재 페이지</div>
+      <div class="stat-value" style="color:var(--primary)">{{ page }}<span style="font-size:14px;font-weight:400;color:var(--text-muted)"> / {{ "{:,}".format(total_pages) }}</span></div>
+      <div class="stat-sub">페이지</div>
+    </div>
+    <div class="stat-card success">
+      <div class="stat-label">표시 건수</div>
+      <div class="stat-value" style="color:var(--success)">{{ messages|length }}</div>
+      <div class="stat-sub">이 페이지</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls anim anim-d2">
+    <form method="get" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select name="rows" class="form-control">
+        {% for v in [10, 20, 50, 100] %}
+        <option value="{{ v }}" {{ 'selected' if rows == v }}>{{ v }}건씩</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+        조회
+      </button>
+    </form>
+    <div style="margin-left:auto;font-size:12px;color:var(--text-muted)">
+      {{ server_time }} 기준
+    </div>
+  </div>
+
+  {% if error %}
+    <div class="alert alert-danger anim">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></svg>
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <!-- Messages -->
+  {% if messages %}
+    <div id="msgList">
+      {% for msg in messages %}
+        {% set level = msg.get('EMRG_STEP_NM') or msg.get('emrg_step_nm') or '' %}
+        {% set cls = 'emergency' if ('긴급' in level or '위급' in level) else ('caution' if '주의' in level else 'info') %}
+        <div class="msg-card {{ cls }} anim" style="animation-delay:{{ loop.index0 * 0.03 }}s">
+          <div class="msg-header">
+            {% if cls == 'emergency' %}
+              <span class="badge badge-danger">{{ level or '긴급' }}</span>
+            {% elif cls == 'caution' %}
+              <span class="badge badge-warn">{{ level }}</span>
+            {% else %}
+              <span class="badge badge-info">{{ level or '안전안내' }}</span>
+            {% endif %}
+
+            {% set dtype = msg.get('DST_SE_NM') or msg.get('dst_se_nm') or '' %}
+            {% if dtype %}
+              <span class="badge badge-muted">{{ dtype }}</span>
+            {% endif %}
+
+            <span class="msg-time">
+              {{ msg.get('CRT_DT') or msg.get('CREAT_DT') or msg.get('SND_DT') or msg.get('REG_YMD') or '-' }}
+            </span>
+          </div>
+          <div class="msg-body">
+            {{ msg.get('MSG_CN') or msg.get('CONT') or msg.get('msg_cn') or '-' }}
+          </div>
+          {% set region = msg.get('RCV_AREA_NM') or msg.get('RCPTN_RGN_NM') or msg.get('rcv_area_nm') or '' %}
+          {% if region %}
+            <div class="msg-region">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              {{ region }}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state anim">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <h3>재난문자가 없습니다</h3>
+      <p>현재 조건에 맞는 재난문자가 없습니다.</p>
+    </div>
+  {% endif %}
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+    <div class="pagination">
+      {% if page > 1 %}
+        <a href="?page={{ page - 1 }}&rows={{ rows }}" class="page-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </a>
+      {% else %}
+        <span class="page-btn disabled">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </span>
+      {% endif %}
+
+      {% set start_page = [1, page - 3]|max %}
+      {% set end_page = [total_pages, page + 3]|min %}
+
+      {% if start_page > 1 %}
+        <a href="?page=1&rows={{ rows }}" class="page-btn">1</a>
+        {% if start_page > 2 %}<span class="page-btn disabled">…</span>{% endif %}
+      {% endif %}
+
+      {% for p in range(start_page, end_page + 1) %}
+        <a href="?page={{ p }}&rows={{ rows }}" class="page-btn {{ 'active' if p == page }}">{{ p }}</a>
+      {% endfor %}
+
+      {% if end_page < total_pages %}
+        {% if end_page < total_pages - 1 %}<span class="page-btn disabled">…</span>{% endif %}
+        <a href="?page={{ total_pages }}&rows={{ rows }}" class="page-btn">{{ total_pages }}</a>
+      {% endif %}
+
+      {% if page < total_pages %}
+        <a href="?page={{ page + 1 }}&rows={{ rows }}" class="page-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+      {% else %}
+        <span class="page-btn disabled">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </span>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+{% endblock %}
